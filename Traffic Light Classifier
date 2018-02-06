@@ -1,0 +1,264 @@
+################################################################################################################
+import cv2 # computer vision library
+import random
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg # for loading in images
+
+%matplotlib inline
+
+################################################################################################################
+# This function should take in an RGB image and return a new, standardized version
+def standardize_input(image):
+    
+    ## TODO: Resize image and pre-process so that all "standard" images are the same size  
+    standard_im = np.copy(image)
+    standard_im = cv2.resize(standard_im, (32, 32))
+    
+    return standard_im
+################################################################################################################
+## Given a label - "red", "green", or "yellow" - return a one-hot encoded label
+# Examples: 
+# one_hot_encode("red") should return: [1, 0, 0]
+# one_hot_encode("yellow") should return: [0, 1, 0]
+# one_hot_encode("green") should return: [0, 0, 1]
+
+def one_hot_encode(label):
+    
+    ## TODO: Create a one-hot encoded label that works for all classes of traffic lights
+    one_hot_encoded = [] 
+    if label == 'red':
+        one_hot_encoded = [1, 0, 0]
+    elif label == 'yellow':
+        one_hot_encoded = [0, 1, 0]
+    else:
+        one_hot_encoded = [0, 0, 1]
+    return one_hot_encoded
+    
+################################################################################################################
+def standardize(image_list):
+    
+    # Empty image data array
+    standard_list = []
+
+    # Iterate through all the image-label pairs
+    for item in image_list:
+        image = item[0]
+        label = item[1]
+
+        # Standardize the image
+        standardized_im = standardize_input(image)
+
+        # One-hot encode the label
+        one_hot_label = one_hot_encode(label)    
+
+        # Append the image, and it's one hot encoded label to the full, processed list of image data 
+        standard_list.append((standardized_im, one_hot_label))
+        
+    return standard_list
+
+# Standardize all training images
+STANDARDIZED_LIST = standardize(IMAGE_LIST)
+
+################################################################################################################
+def create_feature(rgb_image):                     
+    ## TODO: Convert image to HSV color space
+    hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV)
+    
+    ## TODO: Create and return a feature value and/or vector    
+    avg_v = np.sum(hsv[:,:,0])/32/32                            # cal average of brightness    
+    avg_rate = 1                                                # average rate
+    masked_image = np.copy(hsv)                                 # copy image for operating
+
+    # mask edges of images
+    mask_3 = np.zeros((32,32))                                  
+    mask_3[:4,:] = 255
+    mask_3[28:,:] = 255
+    mask_3[:, :5] = 255
+    mask_3[:,27:] = 255
+    masked_image[ mask_3 != 0] = [0,0,0]
+
+    ## extract interest hsv value of masked image
+    lower_save = np.array([0, 0, 0])
+    upper_save = np.array([256, 256,  int(avg_v * avg_rate)])
+    mask_save = cv2.inRange(hsv, lower_save, upper_save)
+    masked_image[ mask_save != 0] = [0,0,0]
+
+    ## H, S, V for orignal feature
+    h = masked_image[:,:,0] 
+    s = masked_image[:,:,1] 
+    v = masked_image[:,:,2] 
+   
+    v_top = np.sum(v[4:14, :]) / 22 / 10                        # brightness of red light field
+    v_mid = np.sum(v[12:22,:]) / 22 / 10                        # brightness of yellow light field
+    v_tail= np.sum(v[18:28,:]) / 22 / 10                        # brightness of green light field
+    
+    s_top = np.sum(s[4:14, 10:20]) / 22 / 10
+    s_mid = np.sum(s[12:22,10:20]) / 22 / 10
+    s_tail= np.sum(s[18:28,10:20]) / 22 / 10
+    
+    feature = [v_top, v_mid, v_tail]  
+    if feature[0] > 210 or feature[1] >210 or feature[2] > 210: # limit the brightness for judging 
+        feature[0] = feature[0] * 0.8
+        feature[1] = feature[1] * 0.8
+        feature[2] = feature[2] * 0.8
+        
+    ## modefy feature
+    max_val = max(feature)
+    pos = feature.index(max_val)
+    tmp3 = 0                                                    # diff of v_top, v_mid, v_tail
+    tmp4 = 0
+        
+    if pos == 0:                                                # if image's red feature max
+        tmp3 = max_val - feature[1]
+        tmp4 = max_val - feature[2]
+    elif pos == 1:                                              # if image's yellow feature max
+        tmp3 = 10
+        tmp4 = 10
+    else:                                                       # if image's green feature max
+        tmp3 = max_val - feature[1]
+        tmp4 = max_val - feature[0]
+    
+    if (s_tail - s_mid) > 0.2*s_mid and  (s_tail - s_top) > 0.2*s_top and (pos != 1) and (tmp3 < 20 or tmp4 < 20):
+        feature = [s_top, s_mid, s_tail]                        # for images that are green light but v_top is max or red light but v_top is little
+        
+    elif tmp3 < 8 or tmp4 < 8:                                  # for images that cannot be identify accordingto their brightness
+        s_top = np.sum(s[4:14, :]) / 22 / 10
+        s_mid = np.sum(s[12:22,:]) / 22 / 10
+        s_tail= np.sum(s[18:28,:]) / 22 / 10
+        if tmp3 < 5 or tmp4 < 5:
+            s_top = np.sum(s[5:7, 10:20]) / 22 / 2
+            s_mid = np.sum(s[14:16,10:20]) / 22 / 2
+            s_tail= np.sum(s[24:26,10:20]) / 22 / 2
+        
+        feature_s = [s_top, s_mid, s_tail]
+        
+        h_red = h[5:7,:]
+        h_red = np.where(h_red > 130, 1, 0)                     # exclude special images with high H value 
+        if 1 not in h_red:
+            feature = feature_s
+    ##
+    
+#     pos = feature.index(max(feature))                           
+#     if pos == 0:
+#         predicted_label = 'red'
+#     elif pos == 1:
+#         predicted_label = 'yellow'
+#     else:
+#         predicted_label = 'green'
+        
+    ##
+#     f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(1, 5, figsize=(20,10))
+#     ax1.set_title('Standardized image')
+#     ax1.imshow(rgb_image)
+#     ax2.set_title('H channel')
+#     ax2.imshow(h, cmap='gray')
+#     ax3.set_title('S channel')
+#     ax3.imshow(s, cmap='gray')
+#     ax4.set_title('V channel')
+#     ax4.imshow(v, cmap='gray')
+#     ax5.set_title(predicted_label)
+#     ax5.imshow(masked_image)
+    
+    return feature
+    
+################################################################################################################
+# This function should take in RGB image input
+# Analyze that image using your feature creation code and output a one-hot encoded label
+def estimate_label(rgb_image):
+    
+    ## TODO: Extract feature(s) from the RGB image and use those features to
+    ## classify the image and output a one-hot encoded label
+    feature = create_feature(rgb_image)
+    pos = feature.index(max(feature))
+    if pos == 0:
+        predicted_label = 'red'
+    elif pos == 1:
+        predicted_label = 'yellow'
+    else:
+        predicted_label = 'green'
+    
+    return one_hot_encode(predicted_label)   
+    
+################################################################################################################
+# Using the load_dataset function in helpers.py
+# Load test data
+TEST_IMAGE_LIST = helpers.load_dataset(IMAGE_DIR_TEST)
+
+# Standardize the test data
+STANDARDIZED_TEST_LIST = standardize(TEST_IMAGE_LIST)
+
+# Shuffle the standardized test data
+random.shuffle(STANDARDIZED_TEST_LIST)
+
+################################################################################################################
+# Constructs a list of misclassified images given a list of test images and their labels
+# This will throw an AssertionError if labels are not standardized (one-hot encoded)
+
+def get_misclassified_images(test_images):
+    # Track misclassified images by placing them into a list
+    misclassified_images_labels = []
+
+    # Iterate through all the test images
+    # Classify each image and compare to the true label
+    for image in test_images:
+
+        # Get true data
+        im = image[0]
+        true_label = image[1]
+        assert(len(true_label) == 3), "The true_label is not the expected length (3)."
+
+        # Get predicted label from your classifier
+        predicted_label = estimate_label(im)
+        assert(len(predicted_label) == 3), "The predicted_label is not the expected length (3)."
+
+        # Compare true and predicted labels 
+        if(predicted_label != true_label):
+            # If these labels are not equal, the image has been misclassified
+            misclassified_images_labels.append((im, predicted_label, true_label))
+            
+    # Return the list of misclassified [image, predicted_label, true_label] values
+    return misclassified_images_labels
+
+
+# Find all misclassified images in a given test set
+MISCLASSIFIED = get_misclassified_images(STANDARDIZED_TEST_LIST)
+
+# Accuracy calculations
+total = len(STANDARDIZED_TEST_LIST)
+num_correct = total - len(MISCLASSIFIED)
+accuracy = num_correct/total
+
+print('Accuracy: ' + str(accuracy))
+print("Number of misclassified images = " + str(len(MISCLASSIFIED)) +' out of '+ str(total))
+
+################################################################################################################
+# Visualize misclassified example(s)
+## TODO: Display an image in the `MISCLASSIFIED` list 
+## TODO: Print out its predicted label - to see what the image *was* incorrectly classified as
+MISCLASSIFIED = get_misclassified_images(STANDARDIZED_TEST_LIST)
+print('all misclassified figures is %i' % len(MISCLASSIFIED))
+for i in MISCLASSIFIED:
+    plt.figure()
+    plt.title('truth = ' + str(i[2]) + ' predict = ' + str(i[1]))
+    plt.imshow(i[0])
+
+
+################################################################################################################
+# test code
+correct = 0
+num = len(STANDARDIZED_TEST_LIST)
+for image_num in range(num):
+    
+    test_im = STANDARDIZED_TEST_LIST[image_num][0]
+    test_label = STANDARDIZED_TEST_LIST[image_num][1]
+    predicted_label = estimate_label(test_im)
+    if predicted_label == test_label:
+        correct += 1
+    else:
+        print('image = ' + str(image_num) + ' label = ' + str(test_label) + ' predict = ' + str(predicted_label) + ' feature = ' + str(create_feature(test_im)))
+        
+print("correct rate: %.4f" % (correct / num))
+
+################################################################################################################
+
