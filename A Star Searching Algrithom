@@ -1,0 +1,84 @@
+A star Algorithm in Python
+from collections import deque
+import math
+def shortest_path(M_ori,start,goal):
+    print("shortest path called")
+    
+    # initialization
+    M_road = M_ori.roads                    # roads
+    M = M_ori.intersections                  # intersections
+    M = add_property(M)                     # M dimension is N x 6
+    opened = set()                        # frontier field
+    closed = set()                        # explored field
+    shortest_path = deque()                  # shortest path structure
+    
+    M[start][3] = cal_h(M, start, goal)          # start intersection's g is 0, and cal its h, f and setting parent -1
+    M[start][4] = M[start][3]
+    M[start][5] = -1  
+    closed.add(start)                      # add start in explored
+    
+    current = start
+    while True:
+        if current == goal:                 # goal is explored
+            shortest_path.appendleft(current)
+            while M[current][5] != -1:        # store shortest path
+                parent = M[current][5]
+                shortest_path.appendleft(parent)
+                current = parent          
+            break
+  
+        for i in M_road[current]:             # goal is not explored
+            if i not in closed:             # not readd closed intersections to opened
+                opened.add(i)
+                if M[i][5] == 0:
+                    M[i][5] = current      # setting parent for intersections not searched
+        M = cal_newopen(M_road, M, current, start, goal, closed, opened)
+                                     # calculation intersections in opened
+        next_node = select_next_current(M, opened, current)
+                                     # select the next instersection
+#         print ("select node is", next_node)
+        closed.add(next_node)               # add next intersection in explored list
+        opened.remove(next_node)             # remove explored intersection from frontier
+        
+        current = next_node   
+    return list(shortest_path)
+
+def select_next_current(M, opened, current):        # select the next instersection whose f value is lowest
+    f_min = 1e6
+    index = -1
+    for i in opened:
+        if f_min > M[i][4]:
+            f_min = M[i][4]
+            index = i
+    return index
+
+def cal_newopen(M_road, M, current, start, goal, closed, opened): # calculation intersections in opened: g, h, f and reset parent
+    for i in M_road[current]:
+        if i not in closed:
+            g = cal_g(M, i, current)      # cal g value
+            h = cal_h(M, i, goal)        # cal h value
+            f = g + h                # cal f value
+#             print ("current=%i,road:%i f=%.4f, f_pre=%.4f"%(current,i, f, M[i][4]))
+            if f < M[i][4] or M[i][4]==0:        # f lower than before result or intersection has not been searched
+                M[i][2] = g
+                M[i][3] = h
+                M[i][4] = f
+                M[i][5] = current   
+    return M
+
+def add_property(M):                     # M dimension is N x 6
+    for i in M:                       # 0:x, 1:y, 2:g, 3:h, 4:f, 5:parent
+        M[i] = [M[i][0], M[i][1], 0,0,0,0]
+    return M
+
+def cal_h(M, node, goal):                  # calculate h value
+    difx = (M[node][0] - M[goal][0])**2
+    dify = (M[node][1] - M[goal][1])**2
+
+    return math.sqrt(difx + dify)
+
+def cal_g(M, node, current):                # calculate g value
+    return cal_h(M, node, current) + M[current][2]
+
+
+
